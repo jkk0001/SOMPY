@@ -21,6 +21,7 @@ from multiprocessing import cpu_count
 from scipy.sparse import csr_matrix
 from sklearn import neighbors
 from sklearn.externals.joblib import Parallel, delayed, load, dump
+from sklearn.metrics import jaccard_similarity_score as jaccard
 import sys
 
 from .decorators import timeit
@@ -275,7 +276,7 @@ class SOM(object):
         #print("maxtrainlen %d",maxtrainlen)
         #lbugnon: add trainlen_factor
         trainlen=int(trainlen*trainlen_factor)
-        
+
         if self.initialization == 'random':
             radiusin = max(1, np.ceil(ms/3.)) if not radiusin else radiusin
             radiusfin = max(1, radiusin/6.) if not radiusfin else radiusfin
@@ -303,11 +304,11 @@ class SOM(object):
             radiusfin = 1 if not radiusfin else radiusfin # max(1, ms/128)
 
         #print("maxtrainlen %d",maxtrainlen)
-        
+
         #lbugnon: add trainlen_factor
         trainlen=int(trainlen_factor*trainlen)
-        
-            
+
+
         self._batchtrain(trainlen, radiusin, radiusfin, njob, shared_memory)
 
     def _batchtrain(self, trainlen, radiusin, radiusfin, njob=1,
@@ -326,11 +327,10 @@ class SOM(object):
 
         bmu = None
 
-        # X2 is part of euclidean distance (x-y)^2 = x^2 +y^2 - 2xy that we use
-        # for each data row in bmu finding.
+        # Adapted for project specific use - including Jaccard similarity as metric
         # Since it is a fixed value we can skip it during bmu finding for each
         # data point, but later we need it calculate quantification error
-        fixed_euclidean_x2 = np.einsum('ij,ij->i', data, data)
+        fixed_dist = jaccard('ij,ij->i', data, data)
 
         logging.info(" radius_ini: %f , radius_final: %f, trainlen: %d\n" %
                      (radiusin, radiusfin, trainlen))
@@ -345,7 +345,7 @@ class SOM(object):
 
             #lbugnon: ojo! aca el bmy[1] a veces da negativo, y despues de eso se rompe...hay algo raro ahi
             qerror = (i + 1, round(time() - t1, 3),
-                      np.mean(np.sqrt(bmu[1] + fixed_euclidean_x2))) #lbugnon: ojo aca me tiró un warning, revisar (commit sinc: 965666d3d4d93bcf48e8cef6ea2c41a018c1cb83 )
+                      np.mean(np.sqrt(bmu[1] + fixed_dist))) #lbugnon: ojo aca me tiró un warning, revisar (commit sinc: 965666d3d4d93bcf48e8cef6ea2c41a018c1cb83 )
             #lbugnon
             #ipdb.set_trace()
             #
@@ -354,10 +354,10 @@ class SOM(object):
                 qerror)
             if np.any(np.isnan(qerror)):
                 logging.info("nan quantization error, exit train\n")
-                
+
                 #sys.exit("quantization error=nan, exit train")
-            
-        bmu[1] = np.sqrt(bmu[1] + fixed_euclidean_x2)
+
+        bmu[1] = np.sqrt(bmu[1] + fixed_dist)
         self._bmu = bmu
 
     @timeit(logging.DEBUG)
